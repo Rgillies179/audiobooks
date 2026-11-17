@@ -1,0 +1,40 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build (unsigned; SideStore signs it on the phone)
+        run: |
+          xcodebuild -project Shelf.xcodeproj -scheme Shelf -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build -quiet \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+
+      - name: Package Shelf.ipa
+        run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/Shelf.app Payload/
+          zip -qry Shelf.ipa Payload
+
+      - name: Publish as the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "build-${{ github.run_number }}" Shelf.ipa \
+            --target "${{ github.sha }}" --title "Build ${{ github.run_number }}" \
+            --notes "Built from ${{ github.sha }}" --latest
